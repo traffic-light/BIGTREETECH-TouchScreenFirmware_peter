@@ -29,7 +29,7 @@
 #elif DEFAULT_LANGUAGE == SLOVAK
 #include "language_sk.h"
 #elif DEFAULT_LANGUAGE == DUTCH
-#include "language_du.h"
+#include "language_nl.h"
 #elif DEFAULT_LANGUAGE == HUNGARIAN
 #include "language_hu.h"
 #elif DEFAULT_LANGUAGE == TURKISH
@@ -42,13 +42,15 @@
 #include "language_ca.h"
 #elif DEFAULT_LANGUAGE == TRAD_CHINESE
 #include "language_tc.h"
+#elif DEFAULT_LANGUAGE == UKRAINIAN
+#include "language_uk.h"
 #else
   #error "Error: invalid language defined"
 #endif
 //
 // Add new Keywords in Language.inc file Only
 //
-u8 tempLabelString[MAX_LANG_LABEL_LENGTH];
+uint8_t tempLabelString[MAX_LANG_LABEL_LENGTH];
 
 const char *const default_pack[LABEL_NUM] = {
   #define X_WORD(NAME) STRING_##NAME ,
@@ -63,7 +65,6 @@ const char *const lang_key_list[LABEL_NUM] =
   #include "Language.inc"
   #undef  X_WORD
 };
-
 
 uint8_t *textSelect(uint16_t sel)
 {
