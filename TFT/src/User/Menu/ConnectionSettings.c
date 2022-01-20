@@ -1,131 +1,168 @@
 #include "ConnectionSettings.h"
 #include "includes.h"
 
+SERIAL_PORT_INDEX portIndex = 0;  // index on serialPort array
+
+void updateListeningMode(MENUITEMS * menu)
+{
+  if (GET_BIT(infoSettings.general_settings, INDEX_LISTENING_MODE) == 1)
+  {
+    menu->items[4].label.index = LABEL_OFF;
+    reminderMessage(LABEL_LISTENING, STATUS_LISTENING);
+  }
+  else
+  {
+    menu->items[4].label.index = LABEL_ON;
+  }
+}
+
 // Set uart pins to input, free uart
 void menuDisconnect(void)
 {
   GUI_Clear(infoSettings.bg_color);
-  GUI_DispStringInRect(20, 0, LCD_WIDTH-20, LCD_HEIGHT, textSelect(LABEL_DISCONNECT_INFO));
-  GUI_DispStringInRect(20, LCD_HEIGHT - (BYTE_HEIGHT*2), LCD_WIDTH-20, LCD_HEIGHT, textSelect(LABEL_TOUCH_TO_EXIT));
+  GUI_DispStringInRect(20, 0, LCD_WIDTH - 20, LCD_HEIGHT, textSelect(LABEL_DISCONNECT_INFO));
+  GUI_DispStringInRect(20, LCD_HEIGHT - (BYTE_HEIGHT * 2), LCD_WIDTH - 20, LCD_HEIGHT, textSelect(LABEL_TOUCH_TO_EXIT));
 
-  Serial_ReSourceDeInit();
-  while(!isPress()) {
-  #ifdef LCD_LED_PWM_CHANNEL
-    loopDimTimer();
-  #endif
+  Serial_DeInit(ALL_PORTS);
+  while (!isPress())
+  {
+    #ifdef LCD_LED_PWM_CHANNEL
+      LCD_CheckDimming();
+    #endif
   }
-  while(isPress()) {
-  #ifdef LCD_LED_PWM_CHANNEL
-    loopDimTimer();
-  #endif
+  while (isPress())
+  {
+    #ifdef LCD_LED_PWM_CHANNEL
+      LCD_CheckDimming();
+    #endif
   }
-  Serial_ReSourceInit();
+  Serial_Init(ALL_PORTS);
 
-  infoMenu.cur--;
+  CLOSE_MENU();
 }
-
-const char* item_baudrate_str[ITEM_BAUDRATE_NUM] = {"2400", "9600", "19200", "38400", "57600", "115200", "250000", "500000", "1000000"};
-const u32   item_baudrate[ITEM_BAUDRATE_NUM] = {2400, 9600, 19200, 38400, 57600, 115200, 250000, 500000, 1000000};
 
 void menuBaudrate(void)
 {
   LABEL title = {LABEL_BAUDRATE};
-  LISTITEM totalItems[ITEM_BAUDRATE_NUM];
-  KEY_VALUES key_num = KEY_IDLE;
+  uint8_t minIndex = portIndex == PORT_1 ? 1 : 0;  // if primary serial port, set minIndex to 1 (value OFF is skipped)
+  uint8_t size = BAUDRATE_COUNT - minIndex;
+  LISTITEM totalItems[size];
+  KEY_VALUES curIndex = KEY_IDLE;
+  uint8_t curItem = 0;
+  uint16_t curPage;
   SETTINGS now = infoSettings;
-  uint8_t cur_item = 0;
 
   // fill baudrate items
-  for(uint8_t i = 0; i < COUNT(totalItems); i++) {
-    if (infoSettings.baudrate == item_baudrate[i]) {
-      totalItems[i].icon = ICONCHAR_CHECKED;
-      cur_item = i;
-    } else {
-      totalItems[i].icon = ICONCHAR_UNCHECKED;
+  for (uint8_t i = 0; i < size; i++)
+  {
+    if (infoSettings.serial_port[portIndex] == i + minIndex)
+    {
+      totalItems[i].icon = CHARICON_CHECKED;
+      curItem = i;
+    }
+    else
+    {
+      totalItems[i].icon = CHARICON_UNCHECKED;
     }
     totalItems[i].itemType = LIST_LABEL;
-    totalItems[i].titlelabel.address = (uint8_t *) item_baudrate_str[i];
+    totalItems[i].titlelabel.address = (uint8_t *) baudrateNames[i + minIndex];
   }
 
-  listWidgetCreate(title, totalItems, COUNT(totalItems), cur_item / LISTITEM_PER_PAGE);
+  curPage = curItem / LISTITEM_PER_PAGE;
 
-  while (infoMenu.menu[infoMenu.cur] == menuBaudrate)
+  listViewCreate(title, totalItems, size, &curPage, true, NULL, NULL);
+
+  while (MENU_IS(menuBaudrate))
   {
-    key_num = menuKeyGetValue();
-    switch (key_num)
-    {
-    case KEY_ICON_5:
-      listWidgetPreviousPage();
-      break;
+    curIndex = listViewGetSelectedIndex();
 
-    case KEY_ICON_6:
-      listWidgetNextPage();
-      break;
+    if (curIndex < size && curIndex != curItem)
+    {  // has changed
+      totalItems[curItem].icon = CHARICON_UNCHECKED;
+      listViewRefreshItem(curItem);  // refresh unchecked status
+      curItem = curIndex;
+      totalItems[curItem].icon = CHARICON_CHECKED;
+      listViewRefreshItem(curItem);  // refresh checked status
 
-    case KEY_ICON_7:
-      infoMenu.cur--;
-      break;
-
-    default:
-      if(key_num < LISTITEM_PER_PAGE){
-        uint16_t tmp_i = listWidgetGetCurPage() * LISTITEM_PER_PAGE + key_num;
-        if (tmp_i != cur_item) { // has changed
-          totalItems[cur_item].icon = ICONCHAR_UNCHECKED;
-          listWidgetRefreshItem(cur_item); // refresh unchecked status
-          cur_item = tmp_i;
-          totalItems[cur_item].icon = ICONCHAR_CHECKED;
-          listWidgetRefreshItem(cur_item); // refresh checked status
-
-          infoSettings.baudrate = item_baudrate[cur_item];
-          Serial_ReSourceDeInit(); // Serial_Init() will malloc a dynamic memory, so Serial_DeInit() first to free, then malloc again.
-          Serial_ReSourceInit();
-          reminderMessage(LABEL_UNCONNECTED, STATUS_UNCONNECT);
-        }
-      }
-      break;
+      infoSettings.serial_port[portIndex] = curItem + minIndex;
+      Serial_DeInit(portIndex);
+      Serial_Init(portIndex);
     }
 
     loopProcess();
   }
 
-  if(memcmp(&now, &infoSettings, sizeof(SETTINGS)))
+  if (memcmp(&now, &infoSettings, sizeof(SETTINGS)))
   {
     storePara();
   }
 }
 
+void menuSerialPorts(void)
+{
+  LABEL title = {LABEL_SERIAL_PORTS};
+  LISTITEM totalItems[SERIAL_PORT_COUNT];
+  KEY_VALUES curIndex = KEY_IDLE;
+
+  for (SERIAL_PORT_INDEX i = PORT_1; i < SERIAL_PORT_COUNT; i++)
+  {
+    totalItems[i].icon = CHARICON_EDIT;
+    totalItems[i].itemType = LIST_CUSTOMVALUE;
+    totalItems[i].titlelabel.address = (uint8_t *) serialPort[i].desc;
+    totalItems[i].valueLabel.index = LABEL_DYNAMIC;  // must be LABEL_DYNAMIC or LABEL_CUSTOM_VALUE in order to use dynamic text
+    setDynamicTextValue(i, (char *) baudrateNames[infoSettings.serial_port[i]]);
+  }
+
+  listViewCreate(title, totalItems, SERIAL_PORT_COUNT, NULL, true, NULL, NULL);
+
+  while (MENU_IS(menuSerialPorts))
+  {
+    curIndex = listViewGetSelectedIndex();
+
+    if (curIndex < (KEY_VALUES)SERIAL_PORT_COUNT)
+    {
+      portIndex = (SERIAL_PORT_INDEX)curIndex;
+      OPEN_MENU(menuBaudrate);
+    }
+
+    loopProcess();
+  }
+}
+
 void menuConnectionSettings(void)
 {
-  // 1 title, ITEM_PER_PAGE items (icon + label)
-  const MENUITEMS connectionSettingsItems = {
+  MENUITEMS connectionSettingsItems = {
     // title
     LABEL_CONNECTION_SETTINGS,
-    // icon                         label
-    {{ICON_BAUD_RATE,               LABEL_BAUDRATE},
-     {ICON_DISCONNECT,              LABEL_DISCONNECT},
-     {ICON_STOP,                    LABEL_EMERGENCYSTOP},
-     {ICON_SHUT_DOWN,               LABEL_SHUT_DOWN},
-     {ICON_BACKGROUND,              LABEL_BACKGROUND},
-     {ICON_BACKGROUND,              LABEL_BACKGROUND},
-     {ICON_BACKGROUND,              LABEL_BACKGROUND},
-     {ICON_BACK,                    LABEL_BACK},}
+    // icon                          label
+    {
+      {ICON_BAUD_RATE,               LABEL_SERIAL_PORTS},
+      {ICON_DISCONNECT,              LABEL_DISCONNECT},
+      {ICON_STOP,                    LABEL_EMERGENCYSTOP},
+      {ICON_SHUT_DOWN,               LABEL_SHUT_DOWN},
+      {ICON_BAUD_RATE,               LABEL_ON},
+      {ICON_NULL,                    LABEL_NULL},
+      {ICON_NULL,                    LABEL_NULL},
+      {ICON_BACK,                    LABEL_BACK},
+    }
   };
 
-  KEY_VALUES key_num = KEY_IDLE;
+  KEY_VALUES curIndex = KEY_IDLE;
 
+  updateListeningMode(&connectionSettingsItems);
   menuDrawPage(&connectionSettingsItems);
 
-  while (infoMenu.menu[infoMenu.cur] == menuConnectionSettings)
+  while (MENU_IS(menuConnectionSettings))
   {
-    key_num = menuKeyGetValue();
-    switch (key_num)
+    curIndex = menuKeyGetValue();
+    switch (curIndex)
     {
       case KEY_ICON_0:
-        infoMenu.menu[++infoMenu.cur] = menuBaudrate;
+        OPEN_MENU(menuSerialPorts);
         break;
 
       case KEY_ICON_1:
-        infoMenu.menu[++infoMenu.cur] = menuDisconnect;
+        OPEN_MENU(menuDisconnect);
         break;
 
       case KEY_ICON_2:
@@ -139,13 +176,22 @@ void menuConnectionSettings(void)
         storeCmd("M81\n");
         break;
 
-      case KEY_ICON_7:
-        infoMenu.cur--;
+      case KEY_ICON_4:
+        TOGGLE_BIT(infoSettings.general_settings, INDEX_LISTENING_MODE);
+        storePara();
+
+        updateListeningMode(&connectionSettingsItems);
+        menuDrawItem(&connectionSettingsItems.items[4], 4);
         break;
 
-      default :
+      case KEY_ICON_7:
+        CLOSE_MENU();
+        break;
+
+      default:
         break;
     }
+
     loopProcess();
   }
 }
